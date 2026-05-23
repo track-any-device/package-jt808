@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor, major]
+
+jobs:
+  release:
+    name: Tag & Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── Determine current version ──────────────────────────────────────────
+      - name: Get latest tag
+        id: latest
+        run: |
+          tag=$(git tag --list 'v*' --sort=-version:refname | head -1)
+          echo "tag=${tag:-v0.0.0}" >> "$GITHUB_OUTPUT"
+
+      - name: Check for new commits since last tag
+        id: check
+        run: |
+          tag="${{ steps.latest.outputs.tag }}"
+          if [ "$tag" = "v0.0.0" ]; then
+            echo "has_commits=true" >> "$GITHUB_OUTPUT"
+          else
+            count=$(git rev-list "${tag}..HEAD" --count)
+            echo "has_commits=$([ "$count" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Derive bump type from conventional commits (push trigger only) ─────
+      - name: Derive bump from commits
+        id: derive
+        if: steps.check.outputs.has_commits == 'true' && github.event_name == 'push'
+        run: |
+          tag="${{ steps.latest.outputs.tag }}"
+          range=$([ "$tag" = "v0.0.0" ] && echo "HEAD" || echo "${tag}..HEAD")
+          if git log $range --pretty="%s" | grep -qE "^(feat|fix|refactor|perf|chore|docs|style|test|ci|build)(\(.+\))?!:"; then
+            echo "bump=major" >> "$GITHUB_OUTPUT"
+          elif git log $range --pretty="%s" | grep -qE "^feat(\(.+\))?:"; then
+            echo "bump=minor" >> "$GITHUB_OUTPUT"
+          else
+            echo "bump=patch" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve bump type
+        id: bump
+        if: steps.check.outputs.has_commits == 'true'
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "type=${{ inputs.bump }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "type=${{ steps.derive.outputs.bump }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Compute next version ───────────────────────────────────────────────
+      - name: Compute next version
+        id: version
+        if: steps.check.outputs.has_commits == 'true'
+        run: |
+          current="${{ steps.latest.outputs.tag }}"
+          current="${current#v}"
+          IFS='.' read -r major minor patch <<< "$current"
+          case "${{ steps.bump.outputs.type }}" in
+            major) major=$((major + 1)); minor=0; patch=0 ;;
+            minor) minor=$((minor + 1)); patch=0 ;;
+            patch) patch=$((patch + 1)) ;;
+          esac
+          echo "next=v${major}.${minor}.${patch}" >> "$GITHUB_OUTPUT"
+
+      # ── Tag and publish release ────────────────────────────────────────────
+      - name: Create tag
+        if: steps.check.outputs.has_commits == 'true'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.version.outputs.next }}"
+          git push origin "${{ steps.version.outputs.next }}"
+
+      - name: Create GitHub release
+        if: steps.check.outputs.has_commits == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.next }}" \
+            --title "${{ steps.version.outputs.next }}" \
+            --generate-notes
+
+      - name: No new commits — skipping release
+        if: steps.check.outputs.has_commits != 'true'
+        run: echo "No commits since ${{ steps.latest.outputs.tag }} — release skipped."
