@@ -227,8 +227,8 @@ class ConsumeJt808Stream extends Command
 
     private function jt808TypeId(): int
     {
-        return $this->jt808TypeId ??= DeviceType::where('slug', 'jt808')->value('id')
-            ?? throw new \RuntimeException('JT808 device type not seeded. Run: php artisan db:seed --class=DeviceTypeSeeder');
+        return $this->jt808TypeId ??= DeviceType::where('stream_channel', 'jt808')->value('id')
+            ?? throw new \RuntimeException('No device type with stream_channel=jt808 found. Run: php artisan db:seed --class=DeviceTypeSeeder');
     }
 
     private function ensureConsumerGroup(string $stream, string $group): void
