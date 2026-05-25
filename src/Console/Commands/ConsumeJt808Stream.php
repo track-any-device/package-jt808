@@ -118,9 +118,19 @@ class ConsumeJt808Stream extends Command
         $model = $payload['device_model'] ?? 'JT808';
         $imei = ($deviceId !== '' && strlen($deviceId) >= 7) ? $deviceId : $phone;
 
-        Device::firstOrCreate(
-            ['gsm_number' => $phone],
-            [
+        // Find existing device by gsm_number, or by imei-prefix match so that
+        // pre-seeded devices (e.g. imei=00000000000000) are linked rather than
+        // duplicated when the JT808 phone field is a 12-char prefix of the IMEI.
+        $existing = Device::where('gsm_number', $phone)->first()
+            ?? Device::whereRaw('LEFT(imei, ?) = ?', [strlen($phone), $phone])->first();
+
+        if ($existing) {
+            if (! $existing->gsm_number) {
+                $existing->forceFill(['gsm_number' => $phone])->save();
+            }
+        } else {
+            Device::create([
+                'gsm_number' => $phone,
                 'device_type_id' => $this->jt808TypeId(),
                 'imei' => $imei,
                 'name' => trim("{$model} {$phone}"),
@@ -132,8 +142,8 @@ class ConsumeJt808Stream extends Command
                     'city_id' => $payload['city_id'] ?? null,
                     'protocol' => 'jt808',
                 ]),
-            ]
-        );
+            ]);
+        }
 
         Log::info('JT808 device registration', [
             'phone' => $phone,
