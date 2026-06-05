@@ -25,7 +25,7 @@ use Illuminate\Support\Facades\Redis;
  *   If you need guaranteed delivery with retry, store the command in MySQL and
  *   have the Go server check for pending commands on auth.
  *
- * The `message` argument is the JSON string produced by Jt808Driver::buildCommand().
+ * The `message` argument is a JSON command descriptor produced by the device-type driver (e.g. P901Driver).
  */
 class Jt808Connector implements DeviceConnectorInterface
 {

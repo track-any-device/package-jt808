@@ -20,9 +20,9 @@ use Illuminate\Support\Facades\Redis;
 /**
  * Consumes the jt808:telemetry Redis Stream published by the Go JT808 server.
  *
- * Every entry is normalised by Jt808Driver::parseEventToSignal() into a
- * SignalObject and persisted via SignalService — which writes the InfluxDB
- * point and updates the device snapshot in MySQL.
+ * Every entry is dispatched to the device-type driver (P901Driver, AOT120Driver, etc.)
+ * via DeviceServiceProvider::driverFor(slug), normalised into a SignalObject, and
+ * persisted via SignalService — which writes the InfluxDB point and updates the device snapshot.
  */
 class ConsumeJt808Stream extends Command
 {
