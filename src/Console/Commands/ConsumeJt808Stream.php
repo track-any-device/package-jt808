@@ -180,6 +180,27 @@ class ConsumeJt808Stream extends Command
         $device = Device::with(['deviceType', 'driver'])->where('gsm_number', $phone)->first();
 
         if (! $device) {
+            Log::info('JT808 location skipped: no device matched gsm_number', ['phone' => $phone]);
+            return;
+        }
+
+        // Only record signals for devices that have been admin-approved.
+        // Devices in Registration, Warehouse, or Inventory have not yet been
+        // reviewed by central staff — signals are held until approval.
+        $approvedStatuses = [
+            DeviceStatus::Available,
+            DeviceStatus::Assigned,
+            DeviceStatus::InService,
+            DeviceStatus::Maintenance,
+            DeviceStatus::InTransit,
+        ];
+
+        if (! in_array($device->status, $approvedStatuses)) {
+            Log::info('JT808 location skipped: device pending admin approval', [
+                'device_id' => $device->id,
+                'phone'     => $phone,
+                'status'    => $device->status->value,
+            ]);
             return;
         }
 
