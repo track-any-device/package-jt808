@@ -118,11 +118,15 @@ class ConsumeJt808Stream extends Command
         $model = $payload['device_model'] ?? 'JT808';
         $imei = ($deviceId !== '' && strlen($deviceId) >= 7) ? $deviceId : $phone;
 
-        // Find existing device by gsm_number, or by imei-prefix match so that
-        // pre-seeded devices (e.g. imei=00000000000000) are linked rather than
-        // duplicated when the JT808 phone field is a 12-char prefix of the IMEI.
+        // Resolution order:
+        // 1. gsm_number exact match (phone number the device sends in JT808 header)
+        // 2. imei prefix match (phone is first 12 chars of a 14/15-char seeded IMEI)
+        // 3. imei exact match (hardware IMEI from the registration payload)
+        // Using all three prevents duplicate records when a device reconnects
+        // before gsm_number has been back-filled from a prior registration.
         $existing = Device::where('gsm_number', $phone)->first()
-            ?? Device::whereRaw('LEFT(imei, ?) = ?', [strlen($phone), $phone])->first();
+            ?? Device::whereRaw('LEFT(imei, ?) = ?', [strlen($phone), $phone])->first()
+            ?? ($imei !== $phone ? Device::where('imei', $imei)->first() : null);
 
         if ($existing) {
             if (! $existing->gsm_number) {
@@ -154,16 +158,24 @@ class ConsumeJt808Stream extends Command
 
     private function handleAuthenticated(string $phone, array $fields): void
     {
+        $hardwareImei = $fields['imei'] ?? $phone;
+
         $device = Device::where('gsm_number', $phone)->first()
+            ?? Device::whereRaw('LEFT(imei, ?) = ?', [strlen($phone), $phone])->first()
+            ?? ($hardwareImei !== $phone ? Device::where('imei', $hardwareImei)->first() : null)
             ?? Device::create([
                 'device_type_id' => $this->jt808TypeId(),
                 'gsm_number' => $phone,
-                'imei' => $fields['imei'] ?? $phone,
+                'imei' => $hardwareImei,
                 'name' => "JT808 {$phone}",
                 'status' => DeviceStatus::Registration,
                 'notes' => 'Auto-registered on authentication (no prior registration event).',
                 'metadata' => ['protocol' => 'jt808'],
             ]);
+
+        if (! $device->gsm_number) {
+            $device->forceFill(['gsm_number' => $phone])->save();
+        }
 
         $loginAt = $fields['login_at'] ?? now()->toIso8601String();
         $device->forceFill(['last_seen_at' => $loginAt])->save();
