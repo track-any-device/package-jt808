@@ -13,9 +13,7 @@ use TrackAnyDevice\Core\Enums\SignalSource;
 use TrackAnyDevice\Core\Enums\WorkingMode;
 use TrackAnyDevice\Core\Models\Device;
 use TrackAnyDevice\Core\Models\DeviceCommand;
-use TrackAnyDevice\SmsGateway\Contracts\SmsGatewayContract;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 
 /**
@@ -116,45 +114,10 @@ class Jt808Driver implements DeviceDriverInterface
 
     public function onboardingAction(Device $device): void
     {
-        $phone    = $device->gsm_number;
-        $apn      = $device->gsmNetwork?->apn ?? 'internet';
-        $host     = (string) config('jt808.server_host', '');
-        $port     = (int) config('jt808.server_port', 7018);
-        $timezone = (int) config('jt808.timezone', 5);
-        $password = $device->deviceType?->default_password ?? '123456';
+        $apn  = $device->gsmNetwork?->apn ?? 'internet';
+        $host = (string) config('jt808.server_host', '');
+        $port = (int) config('jt808.server_port', 7018);
 
-        // Send SMS configuration commands to the device SIM so it knows where
-        // to connect. This runs before the device has a TCP session, so SMS is
-        // the only channel available. Sequence from the P901 manual:
-        //   1. adminip  — JT808 server host + port
-        //   2. APN      — cellular data APN for the SIM
-        //   3. timezone — UTC offset (5 = Pakistan UTC+5)
-        //   4. md 3     — smart mode: report every 30s on vibration, sleep otherwise
-        if ($phone && $host) {
-            try {
-                /** @var SmsGatewayContract $sms */
-                $sms = app(SmsGatewayContract::class);
-
-                $sms->send($phone, "adminip{$password} {$host} {$port}");
-                $sms->send($phone, "APN{$password} {$apn}");
-                $sms->send($phone, "timezone{$password} {$timezone}");
-                $sms->send($phone, "md{$password} 3 30S");
-
-                Log::info('P901 onboarding SMS sent', [
-                    'device_id' => $device->id,
-                    'phone'     => $phone,
-                    'host'      => $host,
-                    'port'      => $port,
-                ]);
-            } catch (\Throwable $e) {
-                Log::warning('P901 onboarding SMS failed — will retry via TCP if device connects', [
-                    'device_id' => $device->id,
-                    'error'     => $e->getMessage(),
-                ]);
-            }
-        }
-
-        // Also push config via TCP for devices that are already connected.
         $this->publishStreamCommand($device, [
             'msg_id' => 0x8103,
             'type'   => 'set_params',

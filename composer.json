@@ -5,8 +5,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
-        "laravel/framework": "^13.7",
-        "track-any-device/sms-gateway": "^1.0"
+        "laravel/framework": "^13.7"
     },
     "autoload": {
         "psr-4": {
