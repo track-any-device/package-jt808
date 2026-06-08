@@ -12,6 +12,7 @@ use TrackAnyDevice\Core\Models\Device;
 use TrackAnyDevice\Core\Models\DeviceType;
 use TrackAnyDevice\Core\Providers\DeviceServiceProvider;
 use TrackAnyDevice\Core\Services\SignalService;
+use TrackAnyDevice\Jt808\Jt808Driver;
 use Illuminate\Console\Command;
 use Illuminate\Redis\Connections\Connection;
 use Illuminate\Support\Facades\Log;
@@ -216,7 +217,14 @@ class ConsumeJt808Stream extends Command
             return;
         }
 
-        $driver = DeviceServiceProvider::driverFor($device->deviceType->slug);
+        try {
+            $driver = DeviceServiceProvider::driverFor($device->deviceType->slug);
+            if ($driver->getStreamChannel() !== 'jt808') {
+                $driver = app(Jt808Driver::class);
+            }
+        } catch (\Throwable) {
+            $driver = app(Jt808Driver::class);
+        }
 
         $signalObject = $driver->parseEventToSignal(
             array_merge($fields, ['source' => SignalSource::StreamJt808->value]),
